@@ -161,6 +161,7 @@ class HJBPPO(OnPolicyAlgorithm):
         self.clip_range_vf = clip_range_vf
         self.normalize_advantage = normalize_advantage
         self.target_kl = target_kl
+        self.hjb_coef = hjb_coef
         self.time_step_size = env.dt
 
         if _init_setup_model:
@@ -248,20 +249,20 @@ class HJBPPO(OnPolicyAlgorithm):
                 # HJB loss
                 rollout_data.observations.requires_grad=True
 
-                values_grad = self.policy.predict_values(rollout_data.observations, actions)
+                values_grad = self.policy.predict_values(rollout_data.observations)
                 value_derivative = th.autograd.grad(
                     values_grad,
                     rollout_data.observations,
-                    grad_outputs=torch.ones_like(values_grad),
+                    grad_outputs=th.ones_like(values_grad),
                     create_graph=True,
                     retain_graph=True,
                 )[0].detach()
 
                 rollout_data.observations.requires_grad=False
 
-                value_derivative_dot_f = torch.bmm(
+                value_derivative_dot_f = th.bmm(
                     value_derivative.view(value_derivative.shape[0], 1, value_derivative.shape[1]), 
-                    dynamics.view(rollout_data.dynamics.shape[0], rollout_data.dynamics.shape[1], 1)
+                    rollout_data.dynamics.view(value_derivative.shape[0], value_derivative.shape[1], 1)
                     ).flatten()
                 
                 hjb_loss = F.mse_loss(value_derivative_dot_f, -rollout_data.rewards)
@@ -311,17 +312,17 @@ class HJBPPO(OnPolicyAlgorithm):
         self.logger.record("train/policy_gradient_loss", np.mean(pg_losses))
         self.logger.record("train/value_loss", np.mean(value_losses))
         self.logger.record("train/hjb_loss", np.mean(hjb_losses))
-        self.logger.record("train/approx_kl", np.mean(approx_kl_divs))
-        self.logger.record("train/clip_fraction", np.mean(clip_fractions))
-        self.logger.record("train/loss", loss.item())
-        self.logger.record("train/explained_variance", explained_var)
-        if hasattr(self.policy, "log_std"):
-            self.logger.record("train/std", th.exp(self.policy.log_std).mean().item())
+        # self.logger.record("train/approx_kl", np.mean(approx_kl_divs))
+        # self.logger.record("train/clip_fraction", np.mean(clip_fractions))
+        # self.logger.record("train/loss", loss.item())
+        # self.logger.record("train/explained_variance", explained_var)
+        # if hasattr(self.policy, "log_std"):
+        #     self.logger.record("train/std", th.exp(self.policy.log_std).mean().item())
 
-        self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
-        self.logger.record("train/clip_range", clip_range)
-        if self.clip_range_vf is not None:
-            self.logger.record("train/clip_range_vf", clip_range_vf)
+        # self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
+        # self.logger.record("train/clip_range", clip_range)
+        # if self.clip_range_vf is not None:
+        #     self.logger.record("train/clip_range_vf", clip_range_vf)
 
     def learn(
         self: HJBPPOSelf,
