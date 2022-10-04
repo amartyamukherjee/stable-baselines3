@@ -7,7 +7,7 @@ import numpy as np
 import torch as th
 
 from stable_baselines3.common.base_class import BaseAlgorithm
-from stable_baselines3.common.buffers import DictRolloutBuffer, RolloutBuffer
+from stable_baselines3.common.buffers import DictRolloutBuffer, RolloutBuffer, HJBRolloutBuffer
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.policies import ActorCriticPolicy
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
@@ -107,17 +107,41 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         self._setup_lr_schedule()
         self.set_random_seed(self.seed)
 
-        buffer_cls = DictRolloutBuffer if isinstance(self.observation_space, gym.spaces.Dict) else RolloutBuffer
+        if isinstance(self.observation_space, gym.spaces.Dict):
+            buffer_cls = DictRolloutBuffer
+            self.rollout_buffer = buffer_cls(
+                self.n_steps,
+                self.observation_space,
+                self.action_space,
+                device=self.device,
+                gamma=self.gamma,
+                gae_lambda=self.gae_lambda,
+                n_envs=self.n_envs,
+            )
+        elif hasattr(self, 'time_step_size'):
+            buffer_cls = HJBRolloutBuffer
+            self.rollout_buffer = buffer_cls(
+                self.n_steps,
+                self.observation_space,
+                self.action_space,
+                device=self.device,
+                gamma=self.gamma,
+                gae_lambda=self.gae_lambda,
+                time_step_size=self.time_step_size,
+                n_envs=self.n_envs,
+            )
+        else:
+            buffer_cls = RolloutBuffer
+            self.rollout_buffer = buffer_cls(
+                self.n_steps,
+                self.observation_space,
+                self.action_space,
+                device=self.device,
+                gamma=self.gamma,
+                gae_lambda=self.gae_lambda,
+                n_envs=self.n_envs,
+            )
 
-        self.rollout_buffer = buffer_cls(
-            self.n_steps,
-            self.observation_space,
-            self.action_space,
-            device=self.device,
-            gamma=self.gamma,
-            gae_lambda=self.gae_lambda,
-            n_envs=self.n_envs,
-        )
         self.policy = self.policy_class(  # pytype:disable=not-instantiable
             self.observation_space,
             self.action_space,

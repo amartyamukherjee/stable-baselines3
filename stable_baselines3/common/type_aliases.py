@@ -29,6 +29,16 @@ class RolloutBufferSamples(NamedTuple):
     advantages: th.Tensor
     returns: th.Tensor
 
+class HJBRolloutBufferSamples(NamedTuple):
+    observations: th.Tensor
+    actions: th.Tensor
+    old_values: th.Tensor
+    old_log_prob: th.Tensor
+    rewards: th.Tensor
+    advantages: th.Tensor
+    returns: th.Tensor
+    dynamics: th.Tensor
+
 
 class DictRolloutBufferSamples(RolloutBufferSamples):
     observations: TensorDict
