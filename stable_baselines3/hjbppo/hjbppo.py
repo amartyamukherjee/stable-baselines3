@@ -162,6 +162,8 @@ class HJBPPO(OnPolicyAlgorithm):
         self.normalize_advantage = normalize_advantage
         self.target_kl = target_kl
         self.hjb_coef = hjb_coef
+
+        assert hasattr(env, 'dt'), f"Environment is missing a time step size (env.dt). Cannot use HJBPPO."
         self.time_step_size = env.dt
 
         if _init_setup_model:
@@ -256,7 +258,7 @@ class HJBPPO(OnPolicyAlgorithm):
                     grad_outputs=th.ones_like(values_grad),
                     create_graph=True,
                     retain_graph=True,
-                )[0].detach()
+                )[0]
 
                 rollout_data.observations.requires_grad=False
 
@@ -312,17 +314,17 @@ class HJBPPO(OnPolicyAlgorithm):
         self.logger.record("train/policy_gradient_loss", np.mean(pg_losses))
         self.logger.record("train/value_loss", np.mean(value_losses))
         self.logger.record("train/hjb_loss", np.mean(hjb_losses))
-        # self.logger.record("train/approx_kl", np.mean(approx_kl_divs))
-        # self.logger.record("train/clip_fraction", np.mean(clip_fractions))
-        # self.logger.record("train/loss", loss.item())
-        # self.logger.record("train/explained_variance", explained_var)
-        # if hasattr(self.policy, "log_std"):
-        #     self.logger.record("train/std", th.exp(self.policy.log_std).mean().item())
+        self.logger.record("train/approx_kl", np.mean(approx_kl_divs))
+        self.logger.record("train/clip_fraction", np.mean(clip_fractions))
+        self.logger.record("train/loss", loss.item())
+        self.logger.record("train/explained_variance", explained_var)
+        if hasattr(self.policy, "log_std"):
+            self.logger.record("train/std", th.exp(self.policy.log_std).mean().item())
 
-        # self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
-        # self.logger.record("train/clip_range", clip_range)
-        # if self.clip_range_vf is not None:
-        #     self.logger.record("train/clip_range_vf", clip_range_vf)
+        self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
+        self.logger.record("train/clip_range", clip_range)
+        if self.clip_range_vf is not None:
+            self.logger.record("train/clip_range_vf", clip_range_vf)
 
     def learn(
         self: HJBPPOSelf,
