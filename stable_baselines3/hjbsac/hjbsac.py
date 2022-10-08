@@ -283,21 +283,17 @@ class HJBSAC(OffPolicyAlgorithm):
 
             actions_pi_grad, _ = self.actor.action_log_prob(replay_data.observations)
 
-            jacobian_action_x = th.autograd.grad(
-                actions_pi_grad,
-                replay_data.observations,
-                grad_outputs=th.ones_like(actions_pi_grad),
-                create_graph=True,
-                retain_graph=True,
-            )[0].detach()
+            nonvectorized_jacobi = th.autograd.functional.jacobian(self.actor,replay_data.observations)
+            # Dims of jacobian_action_x: (batch_size,action_dim,state_dim)
+            jacobian_action_x = torch.stack(nonvectorized_jacobi[i,:,i,:] for i in range(nonvectorized_jacobi.shape[0]))
 
             replay_data.observations.requires_grad = False
             replay_data.actions.requires_grad = False
             
-            hjb_loss_sup = th.bnm(
+            hjb_loss_sup = th.bmm(
                     (derivative_q_values_s + th.bmm(
                         derivative_q_values_a.view(derivative_q_values_a.shape[0], 1, derivative_q_values_a.shape[1]), 
-                        jacobian_action_x
+                        jacobian_action_x.view(jacobian_action_x.shape[0], acobian_action_x.shape[2], acobian_action_x.shape[1])
                         ).view(derivative_q_values_s.shape)).view(derivative_q_values_s.shape[0], 1, derivative_q_values_s.shape[1]),
                     dynamics.view(dynamics.shape[0], dynamics.shape[1], 1)
             ).flatten() + replay_data.rewards
