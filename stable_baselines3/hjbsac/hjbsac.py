@@ -210,7 +210,7 @@ class HJBSAC(OffPolicyAlgorithm):
         self._update_learning_rate(optimizers)
 
         ent_coef_losses, ent_coefs = [], []
-        actor_losses, critic_losses, hjb_losses = [], []
+        actor_losses, critic_losses, hjb_losses = [], [], []
 
         for gradient_step in range(gradient_steps):
             # Sample replay buffer
@@ -260,53 +260,71 @@ class HJBSAC(OffPolicyAlgorithm):
             current_q_values = self.critic(replay_data.observations, replay_data.actions)
 
             # Get HJB loss
-            dynamics = (replay_data.next_observations - replay_data.observations) / self.time_step_size
-            replay_data.observations.requires_grad = True
-            replay_data.actions.requires_grad = True
-            q_values_grad = self.critic(replay_data.observations, replay_data.actions)
-
-            derivative_q_values_s = th.autograd.grad(
-                q_values_grad,
-                replay_data.observations,
-                grad_outputs=th.ones_like(q_values_grad),
-                create_graph=True,
-                retain_graph=True,
-            )[0]
-
-            derivative_q_values_a = th.autograd.grad(
-                q_values_grad,
-                replay_data.actions,
-                grad_outputs=th.ones_like(q_values_grad),
-                create_graph=True,
-                retain_graph=True,
-            )[0]
-
-            actions_pi_grad, _ = self.actor.action_log_prob(replay_data.observations)
-
-            nonvectorized_jacobi = th.autograd.functional.jacobian(self.actor,replay_data.observations)
-            # Dims of jacobian_action_x: (batch_size,action_dim,state_dim)
-            jacobian_action_x = torch.stack(nonvectorized_jacobi[i,:,i,:] for i in range(nonvectorized_jacobi.shape[0]))
-
-            replay_data.observations.requires_grad = False
-            replay_data.actions.requires_grad = False
+            dynamics = ((replay_data.next_observations - replay_data.observations) / self.time_step_size).float()
             
-            hjb_loss_sup = th.bmm(
-                    (derivative_q_values_s + th.bmm(
-                        derivative_q_values_a.view(derivative_q_values_a.shape[0], 1, derivative_q_values_a.shape[1]), 
-                        jacobian_action_x.view(jacobian_action_x.shape[0], acobian_action_x.shape[2], acobian_action_x.shape[1])
-                        ).view(derivative_q_values_s.shape)).view(derivative_q_values_s.shape[0], 1, derivative_q_values_s.shape[1]),
-                    dynamics.view(dynamics.shape[0], dynamics.shape[1], 1)
-            ).flatten() + replay_data.rewards
+            obs = replay_data.observations.float()
+            act = replay_data.actions.float()
+            obs.requires_grad = True
+            act.requires_grad = True
+            q_values_grad_1, q_values_grad_2 = self.critic(obs, act)
+            
+            derivative_q_values_1_s = th.autograd.grad(
+                q_values_grad_1,
+                obs,
+                grad_outputs=th.ones_like(q_values_grad_1),
+                create_graph=True,
+                retain_graph=True,
+            )[0]
 
-            hjb_loss = self.hjb_coef * F.mse_loss(self.gamma_coef * q_values_grad, hjb_loss_sup)
+            derivative_q_values_1_a = th.autograd.grad(
+                q_values_grad_1,
+                act,
+                grad_outputs=th.ones_like(q_values_grad_1),
+                create_graph=True,
+                retain_graph=True,
+            )[0]
+
+            derivative_q_values_2_s = th.autograd.grad(
+                q_values_grad_2,
+                obs,
+                grad_outputs=th.ones_like(q_values_grad_2),
+                create_graph=True,
+                retain_graph=True,
+            )[0]
+
+            derivative_q_values_2_a = th.autograd.grad(
+                q_values_grad_2,
+                act,
+                grad_outputs=th.ones_like(q_values_grad_2),
+                create_graph=True,
+                retain_graph=True,
+            )[0]
+
+            # critic_1
+            _,ds_Q_plus_da_Q_times_Jacobi_1 = th.autograd.functional.vjp(self.actor, obs, v=derivative_q_values_1_a, create_graph=True)
+            hjb_loss_sup_1 = th.bmm(
+                    (derivative_q_values_1_s+ds_Q_plus_da_Q_times_Jacobi_1).view(derivative_q_values_1_s.shape[0], 1, derivative_q_values_1_s.shape[1]),
+                    dynamics.view(dynamics.shape[0], dynamics.shape[1], 1)
+            ).view(-1,1) + replay_data.rewards
+
+            # critic 2
+            _,ds_Q_plus_da_Q_times_Jacobi_2 = th.autograd.functional.vjp(self.actor, obs, v=derivative_q_values_2_a, create_graph=True)
+            hjb_loss_sup_2 = th.bmm(
+                    (derivative_q_values_2_s+ds_Q_plus_da_Q_times_Jacobi_2).view(derivative_q_values_2_s.shape[0], 1, derivative_q_values_2_s.shape[1]),
+                    dynamics.view(dynamics.shape[0], dynamics.shape[1], 1)
+            ).view(-1,1) + replay_data.rewards
+
+            obs.requires_grad = False
+            act.requires_grad = False
+
+            hjb_loss = (F.mse_loss(self.gamma_coef * q_values_grad_1, hjb_loss_sup_1) + F.mse_loss(self.gamma_coef * q_values_grad_2, hjb_loss_sup_2))/2
             hjb_losses.append(hjb_loss.item())
 
             # Compute critic loss
             critic_loss = 0.5 * sum(F.mse_loss(current_q, target_q_values) for current_q in current_q_values)
             critic_losses.append(critic_loss.item())
 
-            critic_loss = critic_loss + hjb_loss
-
+            critic_loss = critic_loss + self.hjb_coef * hjb_loss
             # Optimize the critic
             self.critic.optimizer.zero_grad()
             critic_loss.backward()
@@ -349,7 +367,7 @@ class HJBSAC(OffPolicyAlgorithm):
         eval_env: Optional[GymEnv] = None,
         eval_freq: int = -1,
         n_eval_episodes: int = 5,
-        tb_log_name: str = "SAC",
+        tb_log_name: str = "HJBSAC",
         eval_log_path: Optional[str] = None,
         reset_num_timesteps: bool = True,
     ) -> SACSelf:
