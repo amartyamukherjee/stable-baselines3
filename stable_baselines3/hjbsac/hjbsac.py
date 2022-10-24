@@ -305,14 +305,14 @@ class HJBSAC(OffPolicyAlgorithm):
             hjb_loss_sup_1 = th.bmm(
                     (derivative_q_values_1_s+ds_Q_plus_da_Q_times_Jacobi_1).view(derivative_q_values_1_s.shape[0], 1, derivative_q_values_1_s.shape[1]),
                     dynamics.view(dynamics.shape[0], dynamics.shape[1], 1)
-            ).view(-1,1) + replay_data.rewards
+            ).view(-1,1) + replay_data.rewards + ent_coef * log_prob
 
             # critic 2
             _,ds_Q_plus_da_Q_times_Jacobi_2 = th.autograd.functional.vjp(self.actor, obs, v=derivative_q_values_2_a, create_graph=True).detach()
             hjb_loss_sup_2 = th.bmm(
                     (derivative_q_values_2_s+ds_Q_plus_da_Q_times_Jacobi_2).view(derivative_q_values_2_s.shape[0], 1, derivative_q_values_2_s.shape[1]),
                     dynamics.view(dynamics.shape[0], dynamics.shape[1], 1)
-            ).view(-1,1) + replay_data.rewards
+            ).view(-1,1) + replay_data.rewards + ent_coef * log_prob
 
             obs.requires_grad = False
             act.requires_grad = False
