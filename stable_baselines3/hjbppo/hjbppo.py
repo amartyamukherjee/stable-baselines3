@@ -267,7 +267,7 @@ class HJBPPO(OnPolicyAlgorithm):
                     rollout_data.dynamics.view(value_derivative.shape[0], value_derivative.shape[1], 1)
                     ).flatten()
                 
-                hjb_loss = F.mse_loss(value_derivative_dot_f, -rollout_data.rewards)
+                hjb_loss = F.mse_loss(-values_grad*np.log(self.gamma),value_derivative_dot_f+rollout_data.rewards)
                 hjb_losses.append(hjb_loss.item())
 
                 # Entropy loss favor exploration
